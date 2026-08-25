@@ -1,0 +1,10 @@
+# Rust
+/target/
+**/*.rs.bk
+
+# macOS
+.DS_Store
+
+# Editor / local
+.idea/
+*.swp
