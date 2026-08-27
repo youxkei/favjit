@@ -1,0 +1,16 @@
+[package]
+name = "favjit-host-macos"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+favjit-host = { workspace = true }
+# The machine's own source of bytes, for the one place `engine` asks this host
+# for some (ADR-0012). The crate rather than an OS call written here: what it
+# wraps is one call per platform, and this host has no business having an
+# opinion about which — nor about opening a device and reading it, which would
+# be two (ADR-0006).
+getrandom = "0.2.17"
+log = "0.4.34"

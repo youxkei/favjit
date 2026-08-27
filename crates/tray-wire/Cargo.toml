@@ -1,0 +1,12 @@
+[package]
+name = "favjit-tray-wire"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+# The types the channel carries, and nothing else: what a state and an ask *are* is the
+# boundary's, and this crate is only how they are said. No dependency on `engine`, which
+# is what lets a host read this without depending on the engine through it (ADR-0005).
+[dependencies]
+favjit-host = { workspace = true }

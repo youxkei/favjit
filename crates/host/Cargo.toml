@@ -1,0 +1,12 @@
+[package]
+name = "favjit-host"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+# Empty, and an operation over one of these types would be the thing that fills it.
+# Every host crate depends on this one, so a function here is reachable from inside
+# a host operation exactly as one in `engine` would be — which is the reachability
+# ADR-0005 removes by putting definitions here and nothing else.
+[dependencies]

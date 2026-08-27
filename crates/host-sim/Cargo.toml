@@ -1,0 +1,39 @@
+[package]
+name = "favjit-host-sim"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+# The traits every role's loop is driven through (ADR-0005): a host crate depends
+# on this and never on `engine`, which is what lets this one stand in for both
+# machines without ever borrowing a decision the suite would then not be driving.
+favjit-host = { workspace = true }
+# The vocabulary and arithmetic both machines' `engine`s already have to agree on
+# with each other (ADR-0005): a key's usage, a pointer's HID elements, and their
+# Windows equivalents — reached here rather than reimplemented, for the same
+# reason `host-windows` reaches them there instead of copying the tables.
+favjit-hid = { workspace = true }
+# The Noise construction the real handshake is driven through, for the simulated
+# peer standing in for whichever machine a single-ended test is missing: the
+# construction it drives has to be the one `engine` holds, not a fake that only
+# looks like an agreement (ADR-0006, ADR-0012).
+favjit-noise = { workspace = true }
+# The wire format a relayed record is decoded from, for the same reason as
+# `favjit-noise` above: what a script asserts about a relayed frame has to be read
+# by the format that decodes a real one.
+favjit-link-wire = { workspace = true }
+# The code exchange's own arithmetic, for the simulated peer that stands in for the
+# machine missing from a single-ended pairing test — the same functions the real
+# exchange calls, so a construction the two disagreed about would show up as a key
+# that will not open rather than pass unnoticed.
+favjit-pairing-exchange = { workspace = true }
+# The lookup the real forwarding host makes inside `find_sink`, for the machine that
+# stands in for it — so a scripted network is read by the code that reads a real one.
+favjit-discovery = { workspace = true }
+# This process's own source of bytes, for the one identity `SimHost::default`
+# presents without a test asking it to be anyone in particular (ADR-0012): a
+# chosen byte pattern names no key any private half actually derives, and standing
+# in for the network now means shaking a real hand with it.
+getrandom = "0.2.17"

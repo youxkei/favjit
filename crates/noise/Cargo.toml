@@ -1,0 +1,28 @@
+[package]
+name = "favjit-noise"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+# For its Entropy trait alone (ADR-0005): this crate is a host's for that one
+# operation, same as `engine` is, and a trait declared here instead would be one no
+# host crate could implement.
+favjit-host = { workspace = true }
+# The Noise construction itself, because what the two machines have to agree on is
+# the construction and not only the constants: one copy per platform fails as a
+# record that will not open, which is indistinguishable from the wrong code
+# (ADR-0005, ADR-0012). Neither brings a runtime nor reaches a machine — the bytes
+# it needs come in through `Entropy`.
+#
+# Without `std`, which is not about `no_std`: that feature lists `ring/std`, and
+# `ring` is an optional dependency of `snow`'s — so naming it there pulls in a
+# crate whose build wants a C compiler for the target, for a resolver this never
+# selects. What does the cryptography is `default-resolver`, which is Rust. The
+# cost is the `std::error::Error` impls on `snow`'s own errors, which nothing
+# here reads: what crosses this crate's surface is bytes and `Option`.
+snow = { version = "0.10.0", default-features = false, features = [
+    "default-resolver",
+    "default-resolver-crypto",
+] }

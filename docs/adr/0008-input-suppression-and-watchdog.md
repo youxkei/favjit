@@ -19,6 +19,8 @@ Letting go is not something a failed process can be relied on to do. A crash run
 
 Suppression never outlives the ability to process input. On any failure — panic, hang, termination — suppression ends and keystrokes reach the machine they were typed on.
 
+**A connection that can be opened again is a wait and not a failure.** What a converted keystroke goes out through is a connection whose other end may close it while this loop is healthy. Suppression is held across one attempt to open it again, bounded the way every wait a run takes is bounded and with a beat inside it, so a supervisor is not left reading the wait as a wedge. One attempt, because what makes this the same decision rather than an exception to it is that the holding is bounded by something: an attempt that does not come back is a failure like any other, and the run ends. The keystrokes typed inside that attempt are dropped — this run is holding the keyboard they were typed on and cannot deliver them, and letting them through instead would put the characters the layout exists to replace into whatever has focus.
+
 A separate watchdog process supervises each role and enforces this. Liveness is the event loop itself: the loop reports each return to `next_event()`, and the watchdog can inject a probe event through the host and require it to come back. When reports stop arriving within their bound, the watchdog terminates the process.
 
 The watchdog does nothing else. Being small enough to trust is the whole of its value.
@@ -31,6 +33,7 @@ The probe path is a distinct type at the host surface, not an input event, so no
 
 - A failure degrades to "favjit stopped working", never "the keyboard stopped working". It is loud, and recoverable with the tools already in front of the user.
 - Suppression may not be held across an operation that can block indefinitely, which is a second reason for [ADR-0006](0006-host-boundary.md)'s requirement that outbound host operations never block.
+- The keystrokes typed while the output is being opened again are lost. What makes that the better of the two outcomes is what the other one does with them: hand the keyboards back, and they arrive at applications as the keys they were physically typed on.
 - Where the platform ends a process's suppression when that process dies, that covers the paths where the process is gone; where it does not, releasing it is part of the implementation. The requirement does not change either way.
 - **The injection mechanism must not leave keys held down when the process ends.** Releasing mid-keypress otherwise strands a modifier inside applications, and the paths that matter most — a kill, a crash — have no code left to emit the matching key-ups. This is a constraint on which injection mechanism is chosen, the same shape as the constraint on suppression itself, rather than work handed to the watchdog.
 - Probe-and-ack exercises the real path rather than a side channel, so a loop that is spinning but no longer delivering is caught, not just one that has stopped entirely.
@@ -50,6 +53,10 @@ The probe path is a distinct type at the host surface, not an input event, so no
 ### Keep suppressing, and let the user recover by other means
 
 Log in over the network, or force-quit with the mouse. Not taken: it assumes a second working input path and unhurried troubleshooting at the exact moment the machine looks broken. A tool that can render a laptop unusable while it is away from a network is not one worth shipping.
+
+### Treat the output connection going as a failure, and let the supervisor start the run again
+
+Nothing held across anything, and a run that comes up with everything made from scratch. Not taken: the other end closes that connection in the ordinary course of things rather than exceptionally — it goes on every wake from sleep, and a machine cycling through maintenance sleep produces one close every twenty seconds (`docs/platform/macos/virtual-hid-device.md`). What a restart costs is not the making: the service builds its virtual devices afresh for any client that connects and reports them ready off a poll of its own, so the window in which nothing can be delivered is the same length either way. What differs is the keyboards, which a restart hands back — so every one of those windows is the keys typed in it reaching applications unconverted, which is the one outcome this decision exists to avoid producing on purpose.
 
 ### Ask before releasing
 

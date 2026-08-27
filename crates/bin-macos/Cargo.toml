@@ -1,0 +1,25 @@
+[package]
+name = "favjit-bin-macos"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "favjit"
+path = "src/main.rs"
+
+[dependencies]
+env_logger = "0.11.11"
+favjit-engine = { workspace = true, features = ["sink"] }
+# Decoding the reports this binary's own host wrappers write, for the live
+# line `--dry-run true` prints per keystroke — a report's bytes are what
+# crosses the boundary, and naming what changed in one is this binary's to
+# do, not `engine`'s (ADR-0006).
+favjit-hid = { workspace = true }
+# The host boundary traits this binary's own wrappers implement around
+# `favjit-host-macos`'s types — `engine::sink` re-exports neither, since a
+# caller reaching a host trait belongs on `favjit-host` directly.
+favjit-host = { workspace = true }
+favjit-host-macos = { path = "../host-macos" }
+log = "0.4.34"

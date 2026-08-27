@@ -1,0 +1,22 @@
+[package]
+name = "favjit-host-windows"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+# The boundary this crate's loops are written against (ADR-0005): traits and
+# their types, and no dependency in the other direction back to `engine`.
+favjit-host = { workspace = true }
+# What this run says to the tray item, which is an agreement between two programs and so
+# stated in neither of them (`docs/platform/windows/tray-item-as-its-own-program.md`). Depended on the way `engine` depends on
+# `link-wire`: a format crate is not a decision this host is making.
+favjit-tray-wire = { workspace = true }
+# The machine's own source of bytes, for the one place `engine` asks this host
+# for some (ADR-0012): the ephemeral key the Noise construction it drives
+# needs. The crate rather than an OS call written here: what it wraps is one
+# call per platform, and this host has no business having an opinion about
+# which.
+getrandom = "0.2.17"
+log = "0.4.34"

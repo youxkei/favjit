@@ -14,7 +14,13 @@ Code says *how*. An ADR says *why*, and *why not*.
 docs/adr/NNNN-short-slug.md
 ```
 
-`NNNN` is a zero-padded sequence number; the slug is ASCII kebab-case. Numbers are never reused, and abandoned ADRs keep their number rather than leaving a hole.
+`NNNN` is a zero-padded sequence number; the slug is ASCII kebab-case. The numbers are consecutive with no holes, so a decision that leaves this directory is followed by renumbering the ones after it. A gap would be the one thing about this set a reader cannot check — whether the missing file was decided elsewhere, abandoned, or never written — and a citation is by number, which a `grep` finds wherever it moved to.
+
+## What is an architecture decision
+
+**A decision about how favjit is built, not about how one platform is dealt with.** The crate layout, the host boundary, what the link carries, what makes the suite deterministic: each of those is a choice that would have been a different program if it had gone the other way, and each holds on both machines.
+
+**"On this platform, do it this way" is not one of them.** Which OS mechanism carries the output, how the process is installed, which of the two homes a file sits under: each is settled by what one platform makes possible, so it belongs beside the findings that settle it, under [docs/platform/](../platform/). A decision like that written here reads as though favjit had a choice of platform to make it about, and it does not — there is one Windows machine and one Mac ([ADR-0002](0002-input-topology.md)).
 
 ## Status values
 
