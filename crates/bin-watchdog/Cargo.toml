@@ -1,0 +1,22 @@
+[package]
+name = "favjit-bin-watchdog"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "favjit-watchdog"
+path = "src/main.rs"
+
+# `core` behind the `watchdog` feature, which is the judgement and the clock and
+# nothing else — no conversion pipeline, no link, no pairing (ADR-0008). No host
+# crate: what this needs of a machine is a pipe and a way to end a process, and
+# reaching those through the crate that also holds the capture and the injection
+# would put a platform's whole surface inside the program that must stay trivial.
+# So the platform halves are modules here, which is the one place ADR-0005's
+# layout is departed from.
+[dependencies]
+env_logger = "0.11.11"
+favjit-core = { workspace = true, features = ["watchdog"] }
+log = "0.4.34"

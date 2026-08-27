@@ -1,0 +1,13 @@
+# Link with Apple's `cc` rather than whatever comes first on PATH.
+#
+# A `cc` from a toolchain of its own has no macOS SDK to find, and `libc` asks the
+# linker for `libiconv`, which on this platform exists only as a `.tbd` inside that
+# SDK. The failure is `ld: library not found for -liconv` at the end of a build that
+# otherwise compiled, and it names neither the SDK nor the compiler, so it is worth
+# removing rather than documenting.
+#
+# Only the menu bar binary reaches that code today, through the crates behind its
+# tray icon. Set for the whole workspace anyway: which crate pulls in `libc` is not
+# something to have to remember.
+[target.aarch64-apple-darwin]
+linker = "/usr/bin/cc"

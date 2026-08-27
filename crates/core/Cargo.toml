@@ -1,0 +1,30 @@
+[package]
+name = "favjit-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[features]
+# Roles, per ADR-0005, and the supervisor beside them. `watchdog` is not a role:
+# it supervises both and is what `bin-watchdog` links instead of a host, so what
+# the component that must not fail contains is bounded by this gate (ADR-0008).
+default = []
+source = []
+sink = []
+watchdog = []
+
+[dependencies]
+# The pairing exchange itself, because what the two machines have to agree on is the
+# construction and not only the constants: one copy per platform fails as a key that
+# will not open, which is indistinguishable from the wrong code (ADR-0005 says what
+# this crate may depend on, ADR-0017 why this is here). Neither brings a runtime and
+# neither reaches a machine — the bytes they need come in through `Entropy`.
+chacha20poly1305 = { version = "0.11.0", default-features = false, features = [
+  "alloc",
+] }
+rand_core = { version = "0.6.4", default-features = false }
+# The Noise session those records travel in, for the same reason and with the same
+# property: pure Rust, no async runtime, and nothing in it reaches a machine.
+snow = "0.10.0"
+spake2 = { version = "0.4.0", default-features = false }

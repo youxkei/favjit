@@ -1,0 +1,13 @@
+[package]
+name = "favjit-host-sim"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+# Both roles, because the suite stands in for both machines: a link driven from
+# one end only would be tested against an idea of the other rather than the code
+# that runs there. And the supervisor, which is the third whole run the suite
+# drives (ADR-0008) — a machine that stands in for one is still a machine.
+favjit-core = { workspace = true, features = ["sink", "source", "watchdog"] }

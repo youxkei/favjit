@@ -1,0 +1,25 @@
+[package]
+name = "favjit-bin-menu"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "favjit-menu"
+path = "src/main.rs"
+
+# The only crate here with a GUI, and it is the only one that can have one: a menu
+# bar item lives in the user's login session, where the converter — which needs root
+# — cannot. Splitting it out is what keeps those dependencies out of the daemon and
+# out of `core` (ADR-0005).
+#
+# It reaches the converter through the control file in `host-macos` rather than
+# through the host itself: nothing here captures, injects or seizes anything, so
+# nothing here needs the privilege that would come with it.
+[dependencies]
+env_logger = "0.11.11"
+favjit-host-macos = { path = "../host-macos" }
+log = "0.4.34"
+tao = "0.35.1"
+tray-icon = "0.24.2"

@@ -1,0 +1,14 @@
+[package]
+name = "favjit-host-macos"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+favjit-core = { workspace = true, features = ["sink"] }
+log = "0.4.34"
+# The Noise session the link runs over (ADR-0019). Pure Rust and no async runtime,
+# so this host stays a thing a single loop drives (ADR-0006) — which rules out the
+# TLS stacks, all of which want either a C library or a reactor.
+snow = "0.10.0"

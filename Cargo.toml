@@ -1,0 +1,26 @@
+# resolver = "2" rather than inheriting edition 2024's resolver 3: ADR-0005's
+# feature-unification findings — the ones the `[dev-dependencies]` placement in
+# `e2e` rests on — were established under resolver 2, and nothing has been
+# established under 3.
+[workspace]
+resolver = "2"
+members = [
+    "crates/core",
+    "crates/host-sim",
+    "crates/host-macos",
+    "crates/bin-macos",
+    "crates/bin-menu",
+    "crates/bin-watchdog",
+    "crates/e2e",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.96"
+license = "MIT"
+
+[workspace.dependencies]
+favjit-core = { path = "crates/core" }
+favjit-host-sim = { path = "crates/host-sim" }
+favjit-host-macos = { path = "crates/host-macos" }

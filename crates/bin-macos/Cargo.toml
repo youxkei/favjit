@@ -1,0 +1,16 @@
+[package]
+name = "favjit-bin-macos"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "favjit"
+path = "src/main.rs"
+
+[dependencies]
+env_logger = "0.11.11"
+favjit-core = { workspace = true, features = ["sink"] }
+favjit-host-macos = { path = "../host-macos" }
+log = "0.4.34"
