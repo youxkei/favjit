@@ -1,0 +1,22 @@
+[package]
+name = "favjit-pairing-exchange"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+# For its Entropy trait alone (ADR-0005): this crate is a host's for that one
+# operation, same as `engine` is, and a trait declared here instead would be one no
+# host crate could implement.
+favjit-host = { workspace = true }
+# The exchange itself, because what the two machines have to agree on is the
+# construction and not only the constants: one copy per platform fails as a key that
+# will not open, which is indistinguishable from the wrong code (ADR-0005 says what
+# `engine` may depend on, ADR-0012 why this is here). Neither brings a runtime and
+# neither reaches a machine — the bytes they need come in through `Entropy`.
+chacha20poly1305 = { version = "0.11.0", default-features = false, features = [
+  "alloc",
+] }
+rand_core = { version = "0.6.4", default-features = false }
+spake2 = { version = "0.4.0", default-features = false }

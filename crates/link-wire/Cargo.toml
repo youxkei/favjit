@@ -1,0 +1,18 @@
+[package]
+name = "favjit-link-wire"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+# `DeviceId` and `DeviceInfo`: what a message carries about a device is the host
+# boundary's own vocabulary for one, so this crate reaches it the same place every
+# host does rather than restating it.
+favjit-host = { workspace = true }
+# `Key`, `PointerReport` and `Buttons`: the rest of what a message carries, named
+# the same way on both machines (ADR-0005).
+favjit-hid = { workspace = true }
+# `FRAME`, the one size this format and the Noise construction it travels sealed
+# under both have to agree on.
+favjit-noise = { workspace = true }

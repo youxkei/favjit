@@ -1,0 +1,12 @@
+[package]
+name = "xtask"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+# Nothing. The tasks here drive `cargo` and the toolchain's own `llvm-*` binaries,
+# so what they need is a process and the standard library: a dependency would be
+# one more thing to have installed before the workspace can be measured.
+[dependencies]

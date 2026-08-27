@@ -1,0 +1,31 @@
+[package]
+name = "favjit-bin-tray"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "favjit-tray"
+path = "src/main.rs"
+
+# The Windows counterpart of `bin-menu`, and it is split out for the same reason that one
+# is (`docs/platform/macos/menu-bar-item-as-its-own-agent.md`): a GUI is one crate's
+# business and not `core`'s (ADR-0005).
+# What is different here is that it is not privilege that keeps the two apart — nothing in
+# this crate needs anything the converter does not have. It is that the converter's thread
+# is the loop the watchdog is waiting on, and a toolkit drawing a menu on it would be that
+# loop doing something other than turning (ADR-0008, `docs/platform/windows/tray-item-as-its-own-program.md`).
+#
+# It reaches a running favjit through `host-windows`, whose `tray` module is both ends of
+# that channel: the state it draws is the state the converter published.
+[dependencies]
+env_logger = "0.11.11"
+# The boundary and nothing above it: what this item draws and what it asks for are the
+# two types the channel carries, and both are `host`'s. `engine` is what a run links, not
+# what a program outside one does (ADR-0005).
+favjit-host = { workspace = true }
+favjit-host-windows = { workspace = true }
+log = "0.4.34"
+tao = "0.35.1"
+tray-icon = "0.24.2"
