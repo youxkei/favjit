@@ -96,15 +96,45 @@ input from one paired machine, over a Noise session on TCP. An unpaired source i
 refused before a single keystroke is read, and `--no-listen` is how a machine is asked
 not to serve the link at all.
 
-Pairing is the exchange [ADR-0004](docs/adr/0004-peer-authentication.md) decides — a
-six-digit code this machine displays, entered on the other. `sudo favjit --pair` shows
-one and serves a single attempt, alongside a favjit that is converting: it offers a
-port of its own under a name of its own, so nothing has to be switched off and the key
-it writes down is in force for the next session.
+The Windows side is what connects to that link. It reads the keyboards and mice
+through a low-level hook and the mouse through raw input, which is where a mouse's
+actual movement is. The hook both reads a key and refuses it, in that order, because
+that is the only order in which both can happen on Windows: a key it turns down reaches
+nothing at all, favjit included. Keys are read by position rather than by the character the Windows layout
+would produce, so switching layouts there moves nothing. It finds the Mac over mDNS
+with no address to configure.
 
-Still missing: the driver package favjit sends its output through has to be installed
-separately, and so does the whole Windows side, which is what would connect to that
-link.
+**A chord moves the keyboard between the two machines**
+([ADR-0018](docs/adr/0018-a-chord-moves-the-keyboard.md)): option and `n` sends it to
+the Mac, option and `s` brings it back. While it is the Windows machine's, that chord
+is the only thing refused there — everything else is typed where it was typed — and
+coming back releases whatever the Mac still believes is held, so no modifier is left
+down on the machine you just left.
+
+`favjit` on Windows is a dry run too, and one flag decides the mode there as well:
+`--dry-run false` opens the link and forwards, refusing this machine's own copy of
+what it sends. Relaying without refusing would put every keystroke on both screens,
+so it is not a thing that can be asked for.
+
+Pairing is the exchange [ADR-0004](docs/adr/0004-peer-authentication.md) decides, and
+both halves are here: the Mac shows six digits and serves exactly one attempt, the
+Windows machine is given those digits and spends them once, and the two static keys
+cross under the secret they agree on. Nothing is switched off for it, because pairing
+is advertised under a name of its own: `sudo favjit --pair` on the Mac and
+`favjit --pair <those digits>` on the other machine is the whole of it. Nothing has
+answered a code on hardware yet.
+
+Both machines are supervised. `favjit-watchdog` starts favjit, probes it through a
+pipe and requires the answer to come back out of the loop itself, so a wedge ends the
+process and the keyboards come back rather than staying refused — which is what
+[ADR-0008](docs/adr/0008-input-suppression-and-watchdog.md) asks for wherever
+suppression is held. The judgement it makes is one piece of code for both platforms
+and the end-to-end suite drives it; what is per machine is the pipes and the way to
+end a process.
+
+The driver package favjit sends its output through has to be installed separately,
+and the Windows side has no equivalent of `--install`, so both it and its watchdog
+are started by hand.
 
 ## Documentation
 
@@ -118,6 +148,24 @@ Rust, one cargo workspace under [crates/](crates/).
 
 ```
 cargo test --workspace
+```
+
+On the Mac. `bin-macos` names its host unconditionally, so the workspace as a whole
+builds only there; on the Windows machine the crates are named instead. `core`, the
+simulator and the suite run on either machine, and each platform's own host is
+compiled away on the other one, so the parts behind a platform gate — the Win32
+structures, above all — are checked by building for that platform:
+
+```
+cargo test --target <the other machine's target> -p favjit-host-windows -p favjit-bin-windows -p favjit-bin-watchdog
+```
+
+What is installed is built per package rather than by building the workspace, because
+both binaries are named `favjit` and one output path cannot hold two of them — cargo
+says so and carries on, leaving whichever was compiled last:
+
+```
+cargo build --release -p favjit-bin-macos -p favjit-bin-watchdog -p favjit-bin-menu
 ```
 
 The end-to-end suite is where the intended behaviour is written down: press a

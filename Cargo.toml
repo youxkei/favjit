@@ -8,7 +8,9 @@ members = [
     "crates/core",
     "crates/host-sim",
     "crates/host-macos",
+    "crates/host-windows",
     "crates/bin-macos",
+    "crates/bin-windows",
     "crates/bin-menu",
     "crates/bin-watchdog",
     "crates/e2e",
@@ -24,3 +26,4 @@ license = "MIT"
 favjit-core = { path = "crates/core" }
 favjit-host-sim = { path = "crates/host-sim" }
 favjit-host-macos = { path = "crates/host-macos" }
+favjit-host-windows = { path = "crates/host-windows" }

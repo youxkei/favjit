@@ -25,6 +25,15 @@ from this file is the sign of one.
   cargo fmt --all
   ```
 
+  Those are run on the Mac: `bin-macos` names its host unconditionally, so the
+  workspace as a whole builds only there. Each platform's host and binary are compiled
+  away on the other platform, so they cover everything but the half belonging to the
+  machine they are not run on; that half is checked by naming its crates:
+
+  ```
+  cargo test --target <target> -p favjit-host-windows -p favjit-bin-windows -p favjit-bin-watchdog
+  ```
+
 - [docs/adr/](docs/adr/) — the design decisions, one per file, with the reasoning
   that led to each. Its README describes the process; read it before writing one.
   Don't restate that reasoning at length in code comments — cite the ADR instead.
@@ -34,14 +43,15 @@ from this file is the sign of one.
 
 ## One thing to hold onto
 
-**Don't change `favjit`'s default away from the dry run.** A bare command converts
-for real and delivers nothing, so it changes nothing outside its own process; the run
-that takes the keyboards exclusively and injects is `--dry-run false`, and asking for
-it is the point. The failure the default avoids lands on the keyboard the person is
+**Don't change `favjit`'s default away from the dry run.** On either machine, a bare
+command reads the keyboards and changes nothing outside its own process: the Mac
+converts and injects nothing, and the Windows side reads and sends nothing.
+`--dry-run false` is the run that takes this machine's keyboards, and asking for it
+is the point. The failure the default avoids lands on the keyboard the person is
 typing on, and it is not subtle.
 
-**One flag decides the mode, so there is no combination to get wrong.** Neither of
-the two ways a run could be assembled wrongly is expressible: delivering without
-taking the keyboards would type every key twice, and taking them without delivering
-would take the keyboard away. `crates/e2e/tests/asking_for_nothing.rs` is the record
-of that, and it fails to compile if it stops being true.
+**One flag decides the mode, so there is no combination to get wrong.** Taking the
+keyboards and delivering are one thing on both machines: neither taking them without
+delivering, which takes the keyboard away, nor delivering without taking them, which
+types every key twice, is expressible. `crates/e2e/tests/asking_for_nothing.rs` is
+the record of that for the sink, and it fails to compile if it stops being true.

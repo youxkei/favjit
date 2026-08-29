@@ -25,6 +25,11 @@ pub mod pointer;
 /// bytes, and a format compiled into only one of them is a format that can drift.
 pub mod link;
 
+/// How the machine that forwards finds the machine that converts. Not behind a
+/// role feature for the same reason as the link: one end advertises what the other
+/// asks for, and two spellings of that are two agreements.
+pub mod discovery;
+
 /// Who each end will talk to. Not behind a role feature either: a source pins the
 /// sink it will send to, and a sink pins the sources it will accept.
 pub mod pairing;

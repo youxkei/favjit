@@ -21,14 +21,20 @@ use core::time::Duration;
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
-use favjit_core::link::{Accepted, Incoming, LinkHost, Message, ANSWER, FRAME, HANDSHAKE, SEALED};
+use favjit_core::discovery::{self, Discovery, Found};
+use favjit_core::link::{
+    Accepted, Incoming, LinkHost, Message, ANSWER, FRAME, HANDSHAKE, PAIRING, SEALED, SERVICE,
+};
 use favjit_core::pairing::KEY;
 use favjit_core::pairing::{
     self, Authorized, Code, Entropy, Identity, IdentityStore, PairingHost, Secret, Side,
     SourcePairingHost, Started, OFFER, SEALED_KEY,
 };
 use favjit_core::sink::{SinkHost, SinkInputHost};
-use favjit_core::source::{Connected, SourceHost};
+// Both roles name the reason a stream ended, and they are not the same set of
+// reasons — this is the one file that stands in for both machines, so it is the one
+// place both names are in scope at once.
+use favjit_core::source::{Connected, Ended as SourceEnded, SourceHost, Suppressing};
 use favjit_core::watchdog::{Beat, BeatKind, Exit, WatchdogHost};
 use favjit_core::{
     DeviceId, DeviceInfo, Ended, EventKind, Host, HostEvent, Injected, Instant, Key, PointerReport,
@@ -616,15 +622,17 @@ pub struct Sent {
 /// Separate from [`SimHost`] because the two roles have separate boundaries: a
 /// source sends and never injects. Sharing one type would give each role a
 /// surface it must never touch.
-#[derive(Debug, Default, Clone)]
+#[derive(Debug, Clone)]
 pub struct SimSource {
     cursor: Instant,
     now: Instant,
     inbound: VecDeque<HostEvent>,
     sent: Vec<Sent>,
     heartbeats: Vec<Instant>,
-    /// How many events had been scripted when the link went away.
+    /// How many events had been scripted when the link went away, and when it
+    /// came back.
     gone_after: Option<usize>,
+    back_after: Option<usize>,
     /// How many have been handed over so far, which is what that is compared to.
     taken: usize,
     /// How many times the other machine is not there yet.
@@ -632,11 +640,77 @@ pub struct SimSource {
     connects: usize,
     /// Whether the last answer was a link.
     linked: bool,
-    /// Whether the keyboards are taken, and how many messages had been sent the
-    /// first time they were — which is what says nothing was taken too early.
-    suppressing: bool,
+    /// What this machine's own input is refused for, and how many times it was ever
+    /// refused outright — which, with the count below, is what says nothing was taken
+    /// too early.
+    suppressing: Suppressing,
     suppressions: usize,
     suppressed_before_connecting: usize,
+    /// Everything the run asked for, in order.
+    ///
+    /// Kept because the order is the behaviour and the final state is not: a run
+    /// releases everything as it ends, so what it did while it was going is only
+    /// visible as a sequence.
+    refused: Vec<Suppressing>,
+    /// Whether this machine's keyboards can be read at all.
+    ///
+    /// True by default, since a machine that cannot be read is the exception a
+    /// test asks for by name.
+    reads_input: bool,
+    /// What the run was told it may do, so a test can check that a run which will
+    /// never refuse did not ask to be able to.
+    may_suppress: bool,
+    supervised: bool,
+    /// The lines the run put into this machine's log, in order.
+    warnings: Vec<String>,
+    /// Whether anything had been said by the time the keyboards were asked for,
+    /// which is what says a cost was named while the person could still act on it.
+    warned_before_taking_input: bool,
+    /// Why the stream ended, when it does.
+    ended: SourceEnded,
+    /// Whether there is a sink to relay to at all.
+    no_sink: bool,
+    /// How many times the run waited before looking again.
+    pauses: usize,
+    /// The network to look for the sink over, when a test scripted one.
+    network: Option<SimDiscovery>,
+    /// What the last look found, so a test can read it off a whole run.
+    found: Option<Found>,
+}
+
+impl Default for SimSource {
+    /// A machine whose keyboards can be read, with a sink to relay to, ending
+    /// because it was asked to — the ordinary case, so that a test names only the
+    /// thing it is about.
+    fn default() -> Self {
+        Self {
+            cursor: Instant::ZERO,
+            now: Instant::ZERO,
+            inbound: VecDeque::new(),
+            sent: Vec::new(),
+            heartbeats: Vec::new(),
+            gone_after: None,
+            back_after: None,
+            taken: 0,
+            missing: 0,
+            connects: 0,
+            linked: false,
+            suppressing: Suppressing::Nothing,
+            refused: Vec::new(),
+            suppressions: 0,
+            suppressed_before_connecting: 0,
+            reads_input: true,
+            may_suppress: false,
+            supervised: true,
+            warnings: Vec::new(),
+            warned_before_taking_input: false,
+            ended: SourceEnded::AsAsked,
+            no_sink: false,
+            pauses: 0,
+            network: None,
+            found: None,
+        }
+    }
 }
 
 impl SimSource {
@@ -684,17 +758,82 @@ impl SimSource {
         self
     }
 
+    /// The local network this machine looks for the sink over.
+    ///
+    /// Scripting one is what puts [`discovery::look`] inside the run: without it
+    /// the script says whether the sink was there, and with it the answers do.
+    pub fn on_a_network(&mut self, network: SimDiscovery) -> &mut Self {
+        self.network = Some(network);
+        self
+    }
+
+    /// Where a whole run found the sink, if it found one.
+    pub fn found(&self) -> Option<&Found> {
+        self.found.as_ref()
+    }
+
+    /// The network as the run left it, for reading what was asked of it.
+    pub fn network(&self) -> &SimDiscovery {
+        self.network.as_ref().expect("a network was scripted")
+    }
+
+    /// How many times the run waited before looking again.
+    pub fn pauses(&self) -> usize {
+        self.pauses
+    }
+
+    /// This machine's keyboards cannot be read at all.
+    pub fn cannot_read_input(&mut self) -> &mut Self {
+        self.reads_input = false;
+        self
+    }
+
+    /// Reading the keyboards stopped, rather than the run being asked to end.
+    pub fn stopped_reading(&mut self) -> &mut Self {
+        self.ends_because(SourceEnded::InputGone)
+    }
+
+    /// There is nothing to relay to and there will not be.
+    pub fn no_sink(&mut self) -> &mut Self {
+        self.no_sink = true;
+        self
+    }
+
+    /// Why the stream ends, for a test about what that means.
+    pub fn ends_because(&mut self, ended: SourceEnded) -> &mut Self {
+        self.ended = ended;
+        self
+    }
+
+    /// Whether the run said it might want to refuse input.
+    ///
+    /// Kept because a run that will never refuse must not ask to be able to: on a
+    /// real machine being able means a hook on the whole of it.
+    pub fn may_suppress(&self) -> bool {
+        self.may_suppress
+    }
+
     /// How many times a link was asked for.
     pub fn connects(&self) -> usize {
         self.connects
     }
 
-    /// Whether the keyboards are taken as things stand.
-    pub fn suppressing(&self) -> bool {
+    /// What this machine's own input is refused for as things stand.
+    pub fn suppressing(&self) -> Suppressing {
         self.suppressing
     }
 
-    /// How many times the keyboards were taken.
+    /// Whether the keyboards are taken outright as things stand.
+    pub fn keyboards_taken(&self) -> bool {
+        self.suppressing == Suppressing::Everything
+    }
+
+    /// What the run asked this machine to refuse, in order.
+    pub fn refusals(&self) -> &[Suppressing] {
+        &self.refused
+    }
+
+    /// How many times the keyboards were taken outright.
     pub fn suppressions(&self) -> usize {
         self.suppressions
     }
@@ -714,6 +853,17 @@ impl SimSource {
         self
     }
 
+    /// The link is back, for everything scripted after this.
+    ///
+    /// A separate point in the script rather than the drop lasting to the end of
+    /// it, because a source is expected to carry on afterwards: what it says over
+    /// the new link is where the difference between remembering and forgetting the
+    /// old one shows up, and a drop with nothing after it cannot show that.
+    pub fn link_back(&mut self) -> &mut Self {
+        self.back_after = Some(self.inbound.len());
+        self
+    }
+
     pub fn script(&mut self, kind: EventKind) -> &mut Self {
         self.inbound.push_back(HostEvent::new(self.cursor, kind));
         self
@@ -727,39 +877,91 @@ impl SimSource {
     pub fn heartbeats(&self) -> &[Instant] {
         &self.heartbeats
     }
+
+    /// A machine where nothing is watching this process, so a wedge would keep the
+    /// keyboards refused (ADR-0008).
+    pub fn with_no_watchdog(mut self) -> Self {
+        self.supervised = false;
+        self
+    }
+
+    /// What the run said about itself, in order.
+    pub fn warnings(&self) -> &[String] {
+        &self.warnings
+    }
+
+    /// Whether anything had been said by the time the keyboards were asked for.
+    pub fn warned_before_taking_input(&self) -> bool {
+        self.warned_before_taking_input
+    }
 }
 
 impl SourceHost for SimSource {
-    fn connect(&mut self) -> Connected {
+    fn take_input(&mut self, may_suppress: bool) -> bool {
+        self.may_suppress = may_suppress;
+        self.warned_before_taking_input = !self.warnings.is_empty();
+        self.reads_input
+    }
+
+    fn pause(&mut self) {
+        self.pauses += 1;
+    }
+
+    /// Through [`discovery::look`] when a network was scripted, and by the script
+    /// alone otherwise.
+    ///
+    /// The network is what makes finding the sink reachable from a whole run: a
+    /// test that called `look` itself would pass while nothing wired it up.
+    fn find_sink(&mut self) -> Connected {
         self.connects += 1;
+        if self.no_sink {
+            return Connected::Done;
+        }
+        if let Some(network) = self.network.as_mut() {
+            self.found = discovery::look(network, SERVICE);
+            if self.found.is_none() {
+                // `Done` and not `NotFound`, because a scripted network has said
+                // everything it will ever say: looking again would ask the same
+                // silence, and a real run only stops looking when its bound passes.
+                self.linked = false;
+                return Connected::Done;
+            }
+        }
         if self.missing > 0 {
             self.missing -= 1;
             self.linked = false;
             return Connected::NotFound;
         }
-        self.linked = true;
         Connected::Ready
     }
 
-    fn suppress(&mut self, taking: bool) {
-        if taking {
+    fn open_session(&mut self) -> bool {
+        self.linked = true;
+        true
+    }
+
+    fn ended(&mut self) -> SourceEnded {
+        match self.no_sink {
+            true => SourceEnded::NoLink,
+            false => self.ended,
+        }
+    }
+
+    fn suppress(&mut self, what: Suppressing) {
+        self.refused.push(what);
+        if what == Suppressing::Everything {
             self.suppressions += 1;
             if !self.linked {
                 self.suppressed_before_connecting += 1;
             }
         }
-        self.suppressing = taking;
-    }
-
-    fn next_event(&mut self) -> Option<HostEvent> {
-        let event = self.inbound.pop_front()?;
-        self.now = event.at;
-        self.taken += 1;
-        Some(event)
+        self.suppressing = what;
     }
 
     fn send(&mut self, message: Message) -> bool {
-        if self.gone_after.is_some_and(|mark| self.taken > mark) {
+        let gone = self.gone_after.is_some_and(|mark| self.taken > mark)
+            && self.back_after.is_none_or(|mark| self.taken <= mark);
+        if gone {
             return false;
         }
         // Through the bytes rather than handing the value over: what the sink will
@@ -773,6 +975,23 @@ impl SourceHost for SimSource {
             message: arrived,
         });
         true
+    }
+}
+
+impl Host for SimSource {
+    fn next_event(&mut self) -> Option<HostEvent> {
+        let event = self.inbound.pop_front()?;
+        self.now = event.at;
+        self.taken += 1;
+        Some(event)
+    }
+
+    fn is_supervised(&mut self) -> bool {
+        self.supervised
+    }
+
+    fn warn(&mut self, message: core::fmt::Arguments) {
+        self.warnings.push(message.to_string());
     }
 
     fn heartbeat(&mut self) {
@@ -1726,6 +1945,118 @@ impl WatchdogHost for SimWatchdog {
         self.warnings.push(message.to_string());
     }
 }
+
+/// A local network that answers, or does not, when asked who is offering a
+/// service.
+///
+/// The answers are written here as the bytes a responder would put on the wire,
+/// with a writer of its own rather than by calling the reader's helpers: an encoder
+/// and a decoder that share their arithmetic agree with each other whether or not
+/// either agrees with the format.
+#[derive(Debug, Default, Clone)]
+pub struct SimDiscovery {
+    asked: Vec<Vec<u8>>,
+    answers: VecDeque<Vec<u8>>,
+}
+
+impl SimDiscovery {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// A machine offering the link on `port`.
+    pub fn advertises(&mut self, instance: &str, port: u16, address: Option<[u8; 4]>) -> &mut Self {
+        self.advertises_service(&discovery::service(SERVICE), instance, port, address)
+    }
+
+    /// A machine showing a pairing code, offering it on `port`.
+    pub fn advertises_pairing(
+        &mut self,
+        instance: &str,
+        port: u16,
+        address: Option<[u8; 4]>,
+    ) -> &mut Self {
+        self.advertises_service(&discovery::service(PAIRING), instance, port, address)
+    }
+
+    /// The same for any service, for a network with other things on it.
+    pub fn advertises_service(
+        &mut self,
+        service: &str,
+        instance: &str,
+        port: u16,
+        address: Option<[u8; 4]>,
+    ) -> &mut Self {
+        let full = format!("{instance}.{service}");
+        let mut message = Answer::new(if address.is_some() { 3 } else { 2 });
+        message.record(service, 12, &name(&full));
+        let mut srv = vec![0, 0, 0, 0];
+        srv.extend_from_slice(&port.to_be_bytes());
+        srv.extend_from_slice(&name("the-mac.local"));
+        message.record(&full, 33, &srv);
+        if let Some(address) = address {
+            message.record("the-mac.local", 1, &address);
+        }
+        self.answers_with(message.done())
+    }
+
+    /// A responder that names the instance and never says which port.
+    pub fn advertises_without_a_port(&mut self, instance: &str) -> &mut Self {
+        let full = format!("{instance}.{}", discovery::service(SERVICE));
+        let mut message = Answer::new(1);
+        message.record(&discovery::service(SERVICE), 12, &name(&full));
+        self.answers_with(message.done())
+    }
+
+    /// An answer whose first name is a pointer to itself.
+    pub fn answers_with_a_name_that_points_at_itself(&mut self) -> &mut Self {
+        let mut message = Answer::new(1);
+        message.record("anything.local", 12, &[0]);
+        let mut bytes = message.done();
+        bytes[12] = 0xC0;
+        bytes[13] = 12;
+        self.answers_with(bytes)
+    }
+
+    /// An answer as bytes, for a test about bytes.
+    pub fn answers_with(&mut self, message: Vec<u8>) -> &mut Self {
+        self.answers.push_back(message);
+        self
+    }
+
+    /// The last answer scripted, for a test that wants to cut it short.
+    pub fn advertisement(&self) -> &[u8] {
+        self.answers.back().map(Vec::as_slice).unwrap_or_default()
+    }
+
+    /// Every question that went out.
+    pub fn asked(&self) -> &[Vec<u8>] {
+        &self.asked
+    }
+}
+
+impl Discovery for SimDiscovery {
+    fn ask(&mut self, question: &[u8]) -> bool {
+        self.asked.push(question.to_vec());
+        true
+    }
+
+    fn next_answer(&mut self) -> Option<Vec<u8>> {
+        self.answers.pop_front()
+    }
+}
+
+/// A name as the labels a message carries it as.
+fn name(name: &str) -> Vec<u8> {
+    let mut out = Vec::new();
+    for label in name.trim_end_matches('.').split('.') {
+        out.push(label.len() as u8);
+        out.extend_from_slice(label.as_bytes());
+    }
+    out.push(0);
+    out
+}
+
 /// A machine standing in for the one a code is read off, from this end.
 ///
 /// The mirror of [`SimPairing`], and the exchange really runs here too: the sink is
@@ -1885,5 +2216,35 @@ impl SourcePairingHost for SimSourcePairing {
         }
         self.pinned = Some(key.to_vec());
         true
+    }
+}
+
+/// A response being written, one record at a time.
+struct Answer(Vec<u8>);
+
+impl Answer {
+    fn new(records: u16) -> Self {
+        let mut out = Vec::new();
+        out.extend_from_slice(&0u16.to_be_bytes());
+        // A response, with the bit a responder sets to say it is authoritative.
+        out.extend_from_slice(&0x8400u16.to_be_bytes());
+        out.extend_from_slice(&0u16.to_be_bytes());
+        out.extend_from_slice(&records.to_be_bytes());
+        out.extend_from_slice(&0u16.to_be_bytes());
+        out.extend_from_slice(&0u16.to_be_bytes());
+        Self(out)
+    }
+
+    fn record(&mut self, owner: &str, kind: u16, data: &[u8]) {
+        self.0.extend_from_slice(&name(owner));
+        self.0.extend_from_slice(&kind.to_be_bytes());
+        self.0.extend_from_slice(&1u16.to_be_bytes());
+        self.0.extend_from_slice(&10u32.to_be_bytes());
+        self.0.extend_from_slice(&(data.len() as u16).to_be_bytes());
+        self.0.extend_from_slice(data);
+    }
+
+    fn done(self) -> Vec<u8> {
+        self.0
     }
 }

@@ -4,17 +4,26 @@
 //! out". These pin the two halves of that from the loop's side: `watchdog.rs` drives
 //! the judgement against a scripted machine, and here it is the run that is real.
 //!
-//! The last test is both halves at once, which is the only place the promise is
+//! Both roles are here. A watchdog is per machine, so what the source promises is a
+//! separate promise from what the sink promises — and the source's is the easier one
+//! to break, because it is the role that decides some of its events are not worth
+//! relaying.
+//!
+//! The last two tests are both halves at once, which is the only place the promise is
 //! checked against itself rather than each side against an idea of the other.
 
 use core::time::Duration;
 
 use favjit_core::sink::{self, Request};
 use favjit_core::watchdog::{self, Bound, Exit, Supervised};
-use favjit_core::{DeviceId, DeviceInfo, EventKind, Injected, Key, Layout, ModifierKeys};
-use favjit_host_sim::{SimHost, SimWatchdog};
+use favjit_core::{source, DeviceId, DeviceInfo, EventKind, Injected, Key, Layout, ModifierKeys};
+use favjit_host_sim::{SimHost, SimSource, SimWatchdog};
 
+/// The Mac's own keyboard, and the Windows machine's. The same number on purpose:
+/// each machine numbers its devices from one, and nothing here puts the two in one
+/// run.
 const BUILT_IN: DeviceId = DeviceId(1);
+const KEYBOARD: DeviceId = DeviceId(1);
 
 fn host() -> SimHost {
     let mut host = SimHost::new();
@@ -35,6 +44,18 @@ fn run(mac: &mut SimHost) {
         mac,
         None,
     );
+}
+
+fn source() -> SimSource {
+    let mut host = SimSource::new();
+    host.attach(DeviceInfo::external(KEYBOARD, 0x17ef, 0x60e1));
+    host
+}
+
+/// A whole run of the forwarding machine, relaying and suppressing — the mode in
+/// which a watchdog would have something to protect.
+fn forward(windows: &mut SimSource) {
+    source::run(&source::Request::Relaying, windows);
 }
 
 #[test]
@@ -90,6 +111,44 @@ fn a_probe_answers_while_a_key_is_held() {
             },
         ]
     );
+}
+
+#[test]
+fn the_source_answers_every_event_it_handles_and_not_every_message_it_sends() {
+    // The two counts differ on purpose: a held key's auto-repeat is an event the
+    // loop came back round on and a message it decided not to send. A heartbeat
+    // hung off the sending instead would report a source reading a held key as one
+    // that had stopped turning, and its watchdog would kill it mid-keystroke.
+    let mut host = source();
+    host.press(KEYBOARD, Key::J);
+    host.press(KEYBOARD, Key::J);
+    host.press(KEYBOARD, Key::J);
+    host.release(KEYBOARD, Key::J);
+
+    forward(&mut host);
+
+    assert_eq!(host.heartbeats().len(), 5, "the attach and four key events");
+    assert_eq!(host.sent().len(), 3, "the attach, one press, one release");
+}
+
+#[test]
+fn a_probe_to_the_source_is_answered_and_crosses_nothing() {
+    // The probe is this machine's watchdog asking about this machine. Relaying it
+    // would be telling the Mac about the state of the Windows side, and it must
+    // not be able to become a keystroke there however the tables are written.
+    let mut host = source();
+    host.probe();
+    host.tap(KEYBOARD, Key::J);
+    host.probe();
+
+    forward(&mut host);
+
+    assert_eq!(
+        host.heartbeats().len(),
+        5,
+        "the attach, two probes, and the press and release"
+    );
+    assert_eq!(host.sent().len(), 3, "the attach, the press, the release");
 }
 
 #[test]

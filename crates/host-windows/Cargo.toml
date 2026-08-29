@@ -1,0 +1,19 @@
+[package]
+name = "favjit-host-windows"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+favjit-core = { workspace = true, features = ["source"] }
+# The machine's own source of bytes, which is the one impure step of the code
+# exchange (ADR-0017). The crate rather than an OS call written here: what it wraps
+# is one call per platform, and this host has no business having an opinion about
+# which.
+getrandom = "0.2.17"
+log = "0.4.34"
+# The Noise session the link runs over (ADR-0017), the same crate and the same
+# pattern string as the sink's end: the two machines have to agree, and a second
+# implementation of the handshake is a second thing to keep in step.
+snow = "0.10.0"

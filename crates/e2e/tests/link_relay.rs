@@ -13,6 +13,7 @@ use favjit_core::{
     link::Message, sink, source, DeviceId, DeviceInfo, Injected, Key, Layout, ModifierKeys as M,
     PointerReport,
 };
+use favjit_host_sim::{SimHost, SimLink, SimSource};
 
 /// The key the sink has pinned, since a source it has not paired is refused before
 /// a single frame is read (ADR-0004).
@@ -27,7 +28,11 @@ fn key(fill: u8) -> Vec<u8> {
 fn converting() -> Request {
     Request::Injecting { listen: true }
 }
-use favjit_host_sim::{SimHost, SimLink, SimSource};
+
+/// The forwarding machine's side of the same, for the same reason.
+fn forwarding() -> source::Request {
+    source::Request::Relaying
+}
 
 /// The keyboard on the Windows side. External, so it takes the raw-JIS remaps
 /// rather than the layers the MacBook's own keyboard gets.
@@ -54,7 +59,7 @@ fn converted_here(script: impl Fn(&mut SimHost)) -> Vec<Injected> {
 fn converted_over_the_link(script: impl Fn(&mut SimSource)) -> Vec<Injected> {
     let mut source_host = SimSource::new();
     script(&mut source_host);
-    source::run(&mut source_host);
+    source::run(&forwarding(), &mut source_host);
 
     let mut link = SimLink::new(Authorized::added("", &key(PAIRED)));
     link.connect(key(PAIRED)).relay(source_host.sent());
@@ -162,7 +167,7 @@ fn the_source_sends_input_and_nothing_else() {
     source_host.attach(DeviceInfo::external(REMOTE, 1234, 5678));
     source_host.probe();
     source_host.tap(REMOTE, Key::K);
-    source::run(&mut source_host);
+    source::run(&forwarding(), &mut source_host);
 
     let sent: Vec<Message> = source_host.sent().iter().map(|s| s.message).collect();
     assert_eq!(
@@ -192,7 +197,7 @@ fn a_source_whose_link_has_gone_stops_sending() {
     source_host.link_gone();
     source_host.press(REMOTE, Key::K);
     source_host.press(REMOTE, Key::J);
-    source::run(&mut source_host);
+    source::run(&forwarding(), &mut source_host);
 
     assert_eq!(source_host.sent().len(), 1);
 }
@@ -205,7 +210,7 @@ fn the_source_answers_its_own_watchdog() {
     let mut source_host = SimSource::new();
     source_host.attach(DeviceInfo::external(REMOTE, 1234, 5678));
     source_host.probe();
-    source::run(&mut source_host);
+    source::run(&forwarding(), &mut source_host);
 
     // One for the attach, one for the probe.
     assert_eq!(source_host.heartbeats().len(), 2);

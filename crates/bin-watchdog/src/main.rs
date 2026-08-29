@@ -25,15 +25,17 @@
 
 use core::time::Duration;
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 use favjit_core::watchdog::{run, Bound, Exit, Supervised};
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 use log::{error, info, warn};
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 mod beats;
 #[cfg(unix)]
 mod unix;
+#[cfg(windows)]
+mod windows;
 
 /// Two seconds of silence, probed four times a second, and a fifth of a second to
 /// stop in.
@@ -46,7 +48,7 @@ const SILENCE: Duration = Duration::from_secs(2);
 const PROBE_EVERY: Duration = Duration::from_millis(250);
 const GRACE: Duration = Duration::from_millis(200);
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 fn main() {
     // Warn and above by default, so an unattended supervisor is silent until it has
     // something to say. `RUST_LOG=debug` shows the silence it is measuring.
@@ -77,7 +79,7 @@ fn main() {
     // flag is it (ADR-0009).
     let trace_out = arg_after(flags, "--trace-out");
 
-    let mut machine = unix::Unix::new(child, trace_out);
+    let mut machine = machine(child, trace_out);
     info!(
         "supervising: {:?} of silence, probing every {:?}",
         bound.silence, bound.probe_every
@@ -89,7 +91,7 @@ fn main() {
 ///
 /// Here and not in `core`: an exit code is this program's contract with a service
 /// manager, and deciding it is not something the judgement should carry (ADR-0006).
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 fn said_about(supervised: Supervised) -> i32 {
     match supervised {
         // Passed through, because a child that exited on its own is not a failure: a
@@ -112,14 +114,25 @@ fn said_about(supervised: Supervised) -> i32 {
     }
 }
 
+/// The machine this runs on, as the judgement's boundary.
 #[cfg(unix)]
+fn machine(child: Vec<String>, trace_out: Option<String>) -> unix::Unix {
+    unix::Unix::new(child, trace_out)
+}
+
+#[cfg(windows)]
+fn machine(child: Vec<String>, trace_out: Option<String>) -> windows::Windows {
+    windows::Windows::new(child, trace_out)
+}
+
+#[cfg(any(unix, windows))]
 fn arg_after(args: &[String], name: &str) -> Option<String> {
     args.iter()
         .position(|a| a == name)
         .and_then(|i| args.get(i + 1).cloned())
 }
 
-#[cfg(unix)]
+#[cfg(any(unix, windows))]
 fn seconds(args: &[String], name: &str) -> Option<Duration> {
     arg_after(args, name)
         .and_then(|s| s.parse().ok())
@@ -130,7 +143,7 @@ fn seconds(args: &[String], name: &str) -> Option<Duration> {
 ///
 /// Saying so and exiting is the honest thing for a build that cannot do the job — the
 /// same answer `favjit` gives on the platform whose keyboards it cannot read.
-#[cfg(not(unix))]
+#[cfg(not(any(unix, windows)))]
 fn main() {
     eprintln!(
         "favjit-watchdog supervises through pipes and a process it can end; neither is written \
